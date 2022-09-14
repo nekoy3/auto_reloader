@@ -28,6 +28,8 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome import service as fs
 import time
+import io
+from PIL import Image
 
 class ConfigClass():
     def __init__(self):
@@ -101,27 +103,98 @@ class MainDisplay():
         input_list = [i for i in input_list if i != 0]
         return input_list
     
+    #work_img_namesに画像ファイルを保持、input_listに[[account, domain], [account...], ...]の形式で保持
     def get_page_data(self, img_alt, input_class_name):
         img_elements = self.chrome.find_elements(By.TAG_NAME, 'img')
-        img_elements = [img for img in img_elements if img.get_attribute('alt') == img_alt]
+        img_elements = [img for img in img_elements if img.get_attribute('alt') == img_alt] # and img.get_attribute('id').find('gray') != -1
         self.save_img_in_elements(img_elements)
         self.work_img_names = glob.glob("./tmp/*")
         
         input_elements = self.chrome.find_elements(By.CLASS_NAME, input_class_name)
         self.input_list = self.get_input_group(input_elements)
+
+    def work_input_update(self):
+        name = self.input_list[self.now_index][0].get_attribute('name')
+        if name.find("domain") != -1:
+            have_attribute = 2 #1 accのみ 2 domainのみ 3両方持ち
+            already_domain = self.input_list[self.now_index][0].get_attribute('value')
+        else:
+            if len(self.input_list[self.now_index]) == 1:
+                have_attribute = 1
+                already_account = self.input_list[self.now_index][0].get_attribute('value')
+            else: #要素が2個存在する時
+                have_attribute = 3
+                already_account = self.input_list[self.now_index][0].get_attribute('value')
+                already_domain = self.input_list[self.now_index][1].get_attribute('value')
+        
+        match have_attribute:
+            case 1:
+                self.w_window['-IN1-'].update(already_account, visible=True)
+                self.w_window['-IN2-'].update(visible=False)
+            case 2:
+                self.w_window['-IN1-'].update(visible=False)
+                self.w_window['-IN2-'].update(already_domain, visible=True)
+            case 3:
+                self.w_window['-IN1-'].update(already_account, visible=True)
+                self.w_window['-IN2-'].update(already_domain, visible=True)
     
     def make_working_layout_and_window(self):
-        #work_img_names, input_list
-        progress_text = str(now_work_num) + "/" + str(self.work_img_names)
-        working_layout = [  [sg.Text('現在の仕事 '), sg.Text(progress_text)],
-                            [sg.InputText()],
-                            [sg.Button('OK'), sg.Button('キャンセル')] ]
-        self.window = sg.Window('ワーキングウィンドウ', working_layout, alpha_channel=0.95, no_titlebar=True, grab_anywhere=True, return_keyboard_events=True)
+        shortcut_descript_text = """
+            ショートカットキーとかは
+            まだ未実装
+        """
+        working_layout = [  [sg.Text('現在の仕事 '), sg.Text(f'1 / {len(self.work_img_names)}', key='-work-process-')],
+                            [sg.Text('進捗 '), sg.ProgressBar(len(self.work_img_names), orientation='h', size=(20, 20), key='progressbar')],
+                            [sg.Text('前回入力したデータ： '), sg.Text('', key='-OLD-')],
+                            [sg.Image(filename=f'./tmp/img_0.jpg', key='-IMAGE-'), sg.Text(shortcut_descript_text)],
+                            [sg.Input(visible=True, tooltip="account", key='-IN1-', size=25), sg.Text(' @ '), 
+                                sg.Input(visible=True, tooltip="domain", key='-IN2-', size=25)],
+                            [sg.Button('次へ'), sg.Button('戻る', key='-back-', visible=False)] ]
+        self.w_window = sg.Window('ワーキングウィンドウ', working_layout, alpha_channel=0.95, no_titlebar=True, grab_anywhere=True)
+        self.progress_bar = self.w_window['progressbar']
+
+    def working_window_update(self):
+        self.progress_bar.UpdateBar(self.now_index)
+        self.w_window['-work-process-'].update(f'{self.now_index} / {len(self.work_img_names)}')
+        img_path = f'./tmp/img_{self.now_index}.jpg'
+        self.w_window['-IMAGE-'].update(filename=img_path)
     
+    def working_data_save(self, value):
+        if value['-IN1-']:
+            self.input_list[self.now_index][0].send_keys(value['-IN1-'])
+        
+        if value['-IN2-']:
+            self.input_list[self.now_index][1].send_keys(value['-IN2-'])
+
     def working(self):
+        self.now_index = 0
         self.make_working_layout_and_window()
+        
         while True:
-            event, value = self.window.read()
+            event, value = self.w_window.read()
+            self.work_input_update()
+
+            if event == '-back-':
+                self.working_data_save(value)
+                self.now_index -= 1
+                
+                if self.now_index == 0:
+                    self.w_window['-back-'].Update(visible=False)
+                
+                self.working_window_update()
+
+            if event == '次へ':
+                self.working_data_save(value)
+                self.w_window['-back-'].Update(visible=True)
+
+                self.now_index += 1
+
+                if self.now_index == len(self.work_img_names):
+                    sg.popup_quick_message("仕事を送信しました。")
+                    self.work_img_names = None
+                    break #mainに返す
+
+                self.working_window_update()
 
             if event == "ログアウト" or event == sg.WIN_CLOSED:
                 sg.Popup("終了します。")
@@ -132,12 +205,12 @@ class MainDisplay():
         self.make_driver_process()
         self.login_url_and_makewindow(cfg)
 
-        self.window = sg.Window('待機中', self.waiting_layout, alpha_channel=0.95, grab_anywhere=True, return_keyboard_events=True)
+        window = sg.Window('待機中', self.waiting_layout, alpha_channel=0.95, grab_anywhere=True)
         self.work_img_names = None
 
         count = 0
         while True:
-            event, value = self.window.read(timeout=1)
+            event, value = window.read(timeout=1)
 
             time.sleep(0.1)
             count += 1
@@ -146,12 +219,11 @@ class MainDisplay():
                 try: #存在すればエラーページと判断しelseへ
                     self.chrome.find_element(By.XPATH, cfg.reload_xpath)
                 except: #情報が取得できる状況である場合
+                    window.close()
                     self.get_page_data(cfg.img_alt, cfg.input_class_name)
-                    self.window.close()
                     #仕事中、終わればwork_img_names=Noneに設定、関数内でexitを実行する場合有り
                     self.working() 
                 else: #項目が存在する(エラーページ）時の処理
-                    self.window = sg.Window('待機中', self.waiting_layout, alpha_channel=0.95, no_titlebar=True, grab_anywhere=True, return_keyboard_events=True)
                     self.chrome.refresh()
         
             if event == "ログアウト" or event == sg.WIN_CLOSED:
