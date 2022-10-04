@@ -112,7 +112,8 @@ class MainDisplay():
         
         input_elements = self.chrome.find_elements(By.CLASS_NAME, input_class_name)
         self.input_list = self.get_input_group(input_elements)
-
+    
+    #仕事ウィンドウのaccount@domain入力ボックスを表示非表示、既存データがあればそれを取得する
     def work_input_update(self):
         name = self.input_list[self.now_index][0].get_attribute('name')
         if name.find("domain") != -1:
@@ -129,14 +130,14 @@ class MainDisplay():
         
         match have_attribute:
             case 1:
-                self.w_window['-IN1-'].update(already_account, visible=True)
+                self.w_window['-IN1-'].update(value=already_account, visible=True)
                 self.w_window['-IN2-'].update(visible=False)
             case 2:
                 self.w_window['-IN1-'].update(visible=False)
-                self.w_window['-IN2-'].update(already_domain, visible=True)
+                self.w_window['-IN2-'].update(value=already_domain, visible=True)
             case 3:
-                self.w_window['-IN1-'].update(already_account, visible=True)
-                self.w_window['-IN2-'].update(already_domain, visible=True)
+                self.w_window['-IN1-'].update(value=already_account, visible=True)
+                self.w_window['-IN2-'].update(value=already_domain, visible=True)
     
     def make_working_layout_and_window(self):
         shortcut_descript_text = """
